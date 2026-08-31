@@ -69,7 +69,18 @@ jobs:
       # required check.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - { os: ubuntu-latest, diagnostic-run: 1 }
+          - { os: windows-latest, diagnostic-run: 1 }
+          - { os: windows-latest, diagnostic-run: 2 }
+          - { os: windows-latest, diagnostic-run: 3 }
+          - { os: windows-latest, diagnostic-run: 4 }
+          - { os: windows-latest, diagnostic-run: 5 }
+          - { os: windows-latest, diagnostic-run: 6 }
+          - { os: windows-latest, diagnostic-run: 7 }
+          - { os: windows-latest, diagnostic-run: 8 }
+          - { os: windows-latest, diagnostic-run: 9 }
+          - { os: windows-latest, diagnostic-run: 10 }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
