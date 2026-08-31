@@ -1162,7 +1162,9 @@ describe('workflow test path targets', () => {
     phase('mkdtemp-done');
     const tools = join(repo, 'tools');
     const workflowDir = join(repo, '.archon', 'workflows', 'sdlc', 'plan');
+    const emptyBundledRoot = join(repo, 'empty-bundled');
     mkdirSync(join(workflowDir, 'fixtures'), { recursive: true });
+    mkdirSync(join(emptyBundledRoot, 'defaults'), { recursive: true });
     mkdirSync(tools, { recursive: true });
     phase('mkdir-done');
     spawnSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8' });
@@ -1198,6 +1200,7 @@ describe('workflow test path targets', () => {
             ...process.env,
             ARCHON_TELEMETRY_DISABLED: '1',
             ARCHON_HOME: join(repo, 'archon-home'),
+            ARCHON_TEST_EMPTY_BUNDLED_ROOT: emptyBundledRoot,
             ARCHON_WORKFLOW_PATH_TARGET_PHASES: '1',
           },
         }
