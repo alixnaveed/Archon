@@ -50,6 +50,7 @@ import {
   readFile,
   writeFile,
 } from 'fs/promises';
+import { writeSync } from 'fs';
 import { createHash } from 'crypto';
 import { dirname, join, relative, sep } from 'path';
 import { z } from '@hono/zod-openapi';
@@ -73,6 +74,11 @@ function getLog(): ReturnType<typeof createLogger> {
   if (!cachedLog) cachedLog = createLogger('workflow.source');
   return cachedLog;
 }
+
+const emitWorkflowPathTargetPhase = (phase: string): void => {
+  if (process.env.ARCHON_WORKFLOW_PATH_TARGET_PHASES !== '1') return;
+  writeSync(2, `[workflow-path-target-phase] ${Date.now()} pid=${process.pid} ${phase}\n`);
+};
 
 const PROJECT_SCOPE_DIR = 'project';
 const GLOBAL_SCOPE_DIR = 'global';
@@ -553,6 +559,7 @@ export async function captureWorkflowSource(opts: {
   try {
     await mkdir(staging, { recursive: true });
     for (const job of jobs) {
+      emitWorkflowPathTargetPhase(`capture-job-start scope=${job.scope} from=${job.from}`);
       const target = join(staging, job.dest);
       await mkdir(dirname(target), { recursive: true });
       // Seed the cycle guard with this root's canonical path so a link straight back to
@@ -561,6 +568,9 @@ export async function captureWorkflowSource(opts: {
       const copied = await copyTree(job.from, target, new Set([rootCanonical]));
       fileCount += copied.files;
       byteCount += copied.bytes;
+      emitWorkflowPathTargetPhase(
+        `capture-job-done scope=${job.scope} files=${copied.files} bytes=${copied.bytes}`
+      );
     }
 
     // A compiled binary keeps its bundled set as constants rather than files, so there is
@@ -576,7 +586,9 @@ export async function captureWorkflowSource(opts: {
       }
     }
 
+    emitWorkflowPathTargetPhase('capture-digest-start');
     const { digest } = await digestTree(staging);
+    emitWorkflowPathTargetPhase('capture-digest-done');
     const manifest: WorkflowSourceManifest = {
       version: 1,
       engine_version: BUNDLED_VERSION,
@@ -592,9 +604,11 @@ export async function captureWorkflowSource(opts: {
 
     // Replace rather than merge: a stale capture at this path would silently mix two
     // vintages of source, which is the failure this module exists to prevent.
+    emitWorkflowPathTargetPhase('capture-rename-start');
     await rm(captureRoot, { recursive: true, force: true });
     await mkdir(dirname(captureRoot), { recursive: true });
     await rename(staging, captureRoot);
+    emitWorkflowPathTargetPhase('capture-rename-done');
 
     if (byteCount > CAPTURE_WARN_BYTES) {
       getLog().warn(

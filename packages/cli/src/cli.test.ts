@@ -11,7 +11,7 @@ import { cliArgOptions } from './args';
 import * as git from '@archon/git';
 import { removeTempTree } from '@archon/paths/test-utils';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -23,6 +23,11 @@ import {
 } from './dispatch-guards';
 
 const CLI_ENTRY = join(import.meta.dir, 'cli.ts');
+const WORKFLOW_PATH_TARGET_PHASE_PRELOAD = join(
+  import.meta.dir,
+  'testing',
+  'workflow-path-target-phase-preload.ts'
+);
 // The enclosing git worktree — a valid repo for the git gate, with a real
 // .archon/workflows/ directory so an unknown workflow name fails deterministically.
 const repoRoot = join(import.meta.dir, '..', '..', '..');
@@ -1146,12 +1151,22 @@ describe('workflow test --json error envelope', () => {
 
 describe('workflow test path targets', () => {
   it('resolves a caller-relative path while discovering workflows from the repository root', async () => {
+    const phase = (name: string): void => {
+      writeSync(
+        2,
+        `[workflow-path-target-phase] ${Date.now()} pid=${process.pid} parent-${name}\n`
+      );
+    };
+    phase('setup-start');
     const repo = mkdtempSync(join(tmpdir(), 'archon-cli-workflow-test-cwd-'));
+    phase('mkdtemp-done');
     const tools = join(repo, 'tools');
     const workflowDir = join(repo, '.archon', 'workflows', 'sdlc', 'plan');
     mkdirSync(join(workflowDir, 'fixtures'), { recursive: true });
     mkdirSync(tools, { recursive: true });
+    phase('mkdir-done');
     spawnSync('git', ['init', '-q'], { cwd: repo, encoding: 'utf8' });
+    phase('git-init-done');
     writeFileSync(
       join(workflowDir, 'plan.yaml'),
       'name: plan\ndescription: test\nnodes:\n  - id: node-a\n    prompt: hello\n'
@@ -1160,20 +1175,34 @@ describe('workflow test path targets', () => {
       join(workflowDir, 'fixtures', 'ready.stubs.yaml'),
       'fixture:\n  expect: completed\nnode-a: stub output\n'
     );
+    phase('writes-done');
 
     try {
+      phase('cli-spawn-start');
       const result = spawnSync(
         process.execPath,
-        [CLI_ENTRY, 'workflow', 'test', '../.archon/workflows/sdlc/plan', '--cwd', tools, '--json'],
+        [
+          `--preload=${WORKFLOW_PATH_TARGET_PHASE_PRELOAD}`,
+          CLI_ENTRY,
+          'workflow',
+          'test',
+          '../.archon/workflows/sdlc/plan',
+          '--cwd',
+          tools,
+          '--json',
+        ],
         {
           encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'inherit'],
           env: {
             ...process.env,
             ARCHON_TELEMETRY_DISABLED: '1',
             ARCHON_HOME: join(repo, 'archon-home'),
+            ARCHON_WORKFLOW_PATH_TARGET_PHASES: '1',
           },
         }
       );
+      phase('cli-spawn-done');
 
       expect(result.status).toBe(0);
       expect(JSON.parse(result.stdout)).toMatchObject({
@@ -1182,7 +1211,9 @@ describe('workflow test path targets', () => {
         results: [{ fixture: 'sdlc/plan/fixtures/ready.stubs.yaml' }],
       });
     } finally {
+      phase('delete-start');
       await removeTempTree(repo);
+      phase('delete-done');
     }
   });
 });

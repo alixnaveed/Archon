@@ -1111,6 +1111,11 @@ async function loadWorkflows(cwd: string): Promise<WorkflowLoadResult> {
   }
 }
 
+const emitWorkflowPathTargetPhase = (phase: string): void => {
+  if (process.env.ARCHON_WORKFLOW_PATH_TARGET_PHASES !== '1') return;
+  writeSync(2, `[workflow-path-target-phase] ${Date.now()} pid=${process.pid} ${phase}\n`);
+};
+
 /**
  * Print a workflow's parse warnings (keys the engine silently drops) to stderr.
  *
@@ -1181,16 +1186,20 @@ export async function workflowTestCommand(
   target: string | undefined,
   options: { json?: boolean; targetCwd?: string } = {}
 ): Promise<number> {
+  emitWorkflowPathTargetPhase('workflow-discovery-start');
   const { workflows, errors } = await loadWorkflows(cwd);
+  emitWorkflowPathTargetPhase('workflow-discovery-done');
   // The fixture runner freezes this repo's source before executing anything, exactly as
   // `workflow run` does, and this config decides which directories get frozen. A malformed
   // one would silently narrow that set, so it fails here instead; `loadConfig` returns
   // defaults when there is simply no config file.
+  emitWorkflowPathTargetPhase('config-load-start');
   const config = await loadConfig(cwd).catch((error: unknown) => {
     throw new Error(
       `Cannot read the workflow source configuration in ${cwd}: ${(error as Error).message}`
     );
   });
+  emitWorkflowPathTargetPhase('config-load-done');
   let report: Awaited<ReturnType<typeof runFixtures>>;
   try {
     report = await runFixtures({

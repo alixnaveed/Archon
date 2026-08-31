@@ -53,7 +53,7 @@ installPipeSafeConsole();
 import { parseArgs } from 'util';
 import { cliArgOptions } from './args';
 import { resolve } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, writeSync } from 'fs';
 import { stat } from 'fs/promises';
 
 // Smart defaults for Claude auth
@@ -137,6 +137,12 @@ import {
   canonicalizeProjectPath,
 } from '@archon/paths';
 import * as git from '@archon/git';
+
+const emitWorkflowPathTargetPhase = (phase: string): void => {
+  if (process.env.ARCHON_WORKFLOW_PATH_TARGET_PHASES !== '1') return;
+  writeSync(2, `[workflow-path-target-phase] ${Date.now()} pid=${process.pid} ${phase}\n`);
+};
+emitWorkflowPathTargetPhase('cli-static-import-graph-done');
 
 /** True when `path` exists and is a directory (used to validate `--workflow-source`). */
 async function isPathDirectory(path: string): Promise<boolean> {
@@ -495,7 +501,9 @@ async function main(): Promise<number> {
       try {
         // Resolve to the repo root like the git gate below does, so project
         // workflow discovery reads the repository, not a subdirectory of it.
+        emitWorkflowPathTargetPhase('find-repo-root-start');
         const testCwd = requiresGitRepo ? ((await git.findRepoRoot(cwd)) ?? cwd) : cwd;
+        emitWorkflowPathTargetPhase('find-repo-root-done');
         return await workflowTestCommand(testCwd, target, { json: jsonFlag, targetCwd: cwd });
       } catch (error) {
         const err = error as Error;

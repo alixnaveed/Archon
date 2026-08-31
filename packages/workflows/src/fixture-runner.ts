@@ -25,6 +25,7 @@
  * caller repo's HEAD (see {@link withExecWorkspace}), never the operator's tree.
  */
 import { readdir, realpath, rm, stat } from 'node:fs/promises';
+import { writeSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from '@hono/zod-openapi';
@@ -54,6 +55,11 @@ function getLog(): ReturnType<typeof createLogger> {
   cachedLog ??= createLogger('workflow.fixture-runner');
   return cachedLog;
 }
+
+const emitWorkflowPathTargetPhase = (phase: string): void => {
+  if (process.env.ARCHON_WORKFLOW_PATH_TARGET_PHASES !== '1') return;
+  writeSync(2, `[workflow-path-target-phase] ${Date.now()} pid=${process.pid} ${phase}\n`);
+};
 
 export const fixtureDeclarationSchema = z
   .object({
@@ -340,12 +346,14 @@ async function withCapturedFixtureSource<T>(
   try {
     return await fn(capturedSourceRoots(capture.captureRoot, capture.manifest.source_config));
   } finally {
+    emitWorkflowPathTargetPhase('capture-delete-start');
     await rm(captureRoot, { recursive: true, force: true }).catch((error: unknown) => {
       getLog().warn(
         { captureRoot, error: error instanceof Error ? error.message : String(error) },
         'fixture_runner.source_capture_dispose_failed'
       );
     });
+    emitWorkflowPathTargetPhase('capture-delete-done');
   }
 }
 
@@ -424,15 +432,18 @@ async function disposeExecWorkspace(cwd: string, workspace: string): Promise<voi
 export async function runFixtures(options: RunFixturesOptions): Promise<FixtureReport> {
   const roots = options.sourceRoots ?? liveSourceRoots(options.cwd);
   // Same scope roots discovery reads, project root included as its `.archon/workflows` dir.
+  emitWorkflowPathTargetPhase('fixture-discovery-start');
   const all = await discoverFixtures([
     ...(roots.project !== null ? [join(roots.project, '.archon', 'workflows')] : []),
     roots.globalWorkflows,
     roots.bundledWorkflows,
   ]);
+  emitWorkflowPathTargetPhase('fixture-discovery-done');
 
   const byName = new Map(options.workflows.map(ws => [ws.workflow.name, ws]));
   let selected = all;
   if (options.target !== undefined) {
+    emitWorkflowPathTargetPhase('fixture-target-selection-start');
     const targetName = options.target;
     // A target resolves when it names a discovered workflow, a directory above a
     // fixtures dir (pack name or workflow folder), or a path containing fixtures.
@@ -474,6 +485,7 @@ export async function runFixtures(options: RunFixturesOptions): Promise<FixtureR
             : ' Discovered fixtures target no workflow in the discovery catalog.';
       throw new Error(`No fixtures found for '${targetName}'.${hint}`);
     }
+    emitWorkflowPathTargetPhase('fixture-target-selection-done');
   }
 
   const results = await withCapturedFixtureSource(
@@ -559,8 +571,9 @@ async function checkFixture(
   };
   try {
     const execCode = parsed.execCode;
-    const run = (workspace: string): Promise<DryRunResult> =>
-      dryRunWorkflow({
+    const run = async (workspace: string): Promise<DryRunResult> => {
+      emitWorkflowPathTargetPhase('dry-run-start');
+      const result = await dryRunWorkflow({
         workflow: ws.workflow,
         userMessage: '',
         cwd: options.cwd,
@@ -572,6 +585,9 @@ async function checkFixture(
         ...(options.config ? { config: options.config } : {}),
         ...(options.aiProfile ? { aiProfile: options.aiProfile } : {}),
       });
+      emitWorkflowPathTargetPhase('dry-run-done');
+      return result;
+    };
     const result = execCode ? await withExecWorkspace(options.cwd, run) : await run(options.cwd);
 
     let failureReason: string | undefined;
